@@ -130,6 +130,37 @@ netcupctl ack-poll 98765
 netcupctl price-tld de
 ```
 
+## Dynamic DNS (`update_ip.py`)
+
+Companion script that fetches the host's current public IP from
+[ipify](https://www.ipify.org/) and upserts an `A` (or `AAAA`) record via the
+netcup API. Pure stdlib, no `curl`/`jq` required — reuses `NetcupClient` from
+`netcupctl.py`.
+
+```bash
+python3 update_ip.py example.com home              # A record for home.example.com
+python3 update_ip.py example.com @ --type AAAA     # AAAA record for the apex
+python3 update_ip.py example.com home --ip 1.2.3.4 # skip ipify lookup
+```
+
+Behaviour:
+
+- If the record already points at the detected IP → no API write.
+- If it exists with a different value → updated in place (record id reused).
+- If it does not exist → created.
+
+### Cron example
+
+Run every 5 minutes. Credentials must be reachable from cron's environment —
+either point `--config` at the ini file or export the `NETCUP_*` env vars in
+the crontab.
+
+```cron
+*/5 * * * * /usr/bin/python3 /opt/netcupctl/update_ip.py example.com home --config /root/.config/ncdapi/credentials >> /var/log/update-ip.log 2>&1
+```
+
+For IPv6 add a second line with `--type AAAA`.
+
 ## Exit codes
 
 | Code | Meaning                   |
