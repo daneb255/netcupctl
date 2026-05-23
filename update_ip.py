@@ -85,6 +85,26 @@ def upsert_record(
     return match[0] if match else updated[-1]
 
 
+def send_signal_message(
+    api_url: str,
+    sender: str,
+    recipients: list[str],
+    message: str,
+    timeout: float = 10.0,
+) -> None:
+    payload = json.dumps(
+        {"message": message, "number": sender, "recipients": recipients}
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        f"{api_url.rstrip('/')}/v2/send",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        log.debug("signal response: %s", resp.read().decode("utf-8"))
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("domain", help="zone, e.g. example.com")
@@ -95,6 +115,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--force", action="store_true",
                    help="ignore the local IP cache and always query the API")
     p.add_argument("-v", "--verbose", action="count", default=0)
+    p.add_argument("--signal-url", metavar="URL",
+                   help="base URL of the signal-cli-rest-api, e.g. http://localhost:8080")
+    p.add_argument("--signal-sender", metavar="NUMBER",
+                   help="registered Signal number used as sender, e.g. +4912345")
+    p.add_argument("--signal-recipient", metavar="RECIPIENT", action="append",
+                   dest="signal_recipients", default=[],
+                   help="recipient number or group ID (repeatable), e.g. group.GROUPID")
     args = p.parse_args(argv)
 
     logging.basicConfig(
@@ -117,6 +144,16 @@ def main(argv: list[str] | None = None) -> int:
         result = upsert_record(c, args.domain, args.hostname, args.type, ip)
     write_cached_ip(cache_file, ip)
     print(json.dumps(result, indent=2, sort_keys=True))
+
+    if args.signal_url and args.signal_sender and args.signal_recipients:
+        old_ip = cached or "unknown"
+        msg = f"IP updated: {args.hostname}.{args.domain} {args.type} {old_ip} → {ip}"
+        try:
+            send_signal_message(args.signal_url, args.signal_sender, args.signal_recipients, msg)
+            log.info("signal notification sent")
+        except Exception as exc:
+            log.warning("signal notification failed: %s", exc)
+
     return 0
 
 
